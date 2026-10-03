@@ -8,3 +8,6 @@ Wiring
 | --- | --- | 
 | GPIO 27 (RX) | TX |
 | GPIO 22 (TX) | RX | 
+
+Parts required.
+| GPIO 22 (TX) | RX | 
