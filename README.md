@@ -10,4 +10,4 @@ Wiring
 | GPIO 22 (TX) | RX | 
 
 Parts required.
-| LD2450 radar | https://www.aliexpress.com/item/1005007254785237.html?spm=a2g0o.productlist.main.1.1a6c15b2vrlaSY&algo_pvid=cf8f82c4-784a-4bba-a35b-54a93075159c&algo_exp_id=cf8f82c4-784a-4bba-a35b-54a93075159c-0&pdp_ext_f=%7B"order"%3A"4307"%2C"eval"%3A"1"%2C"fromPage"%3A"search"%7D&pdp_npi=6%40dis%21AUD%217.76%211.45%21%21%215.29%210.99%21%402101dedf17910689307098198e0d4d%2112000039961554064%21sea%21AU%210%21ABX%211%210%21n_tag%3A-29910%3Bd%3Add158f5f%3Bm03_new_user%3A-29895%3BpisId%3A5000000210900741&curPageLogUid=eYuWuS8cwoZf&utparam-url=scene%3Asearch%7Cquery_from%3A%7Cx_object_id%3A1005007254785237%7C_p_origin_prod%3A|
+| LD2450 radar | [Clickable Text](https://www.example.com)|
