@@ -16,6 +16,7 @@ Parts required.
 - lipo battery, used one from a old vape
 <br>
   Demo of it in action with simulate flag set to true
+  <br>
   <img width="30%" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" />
 
 
