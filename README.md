@@ -14,6 +14,6 @@ Parts required.
 - 2.8 inch cheap yellow display
 - tp4056 charger with boost
 - lipo battery, used one from a old vape
+<p align="center"><img width="50%" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" /></p>
 
-<img width="50%" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" />
 
