@@ -15,5 +15,5 @@ Parts required.
 - tp4056 charger with boost
 - lipo battery, used one from a old vape
 
-<img width="800" height="1422" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" />
+<img width="50%" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" />
 
