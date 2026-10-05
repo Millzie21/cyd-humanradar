@@ -122,10 +122,9 @@ const RGB OUTER_RGB   = {180, 248, 242};
 const RGB PULSE_RGB   = {200, 255, 248};
 const RGB DOT_RGB     = {255, 215, 190};
 
-// colors of the blips on the radar
-const RGB TARGET_RGB[3] = { {255, 0, 0}, {0, 255, 0}, {0, 0, 255} };
+const RGB TARGET_RGB[3] = { {255, 0, 0}, {255, 255, 0}, {0, 255, 0} };
 // colors used for the readouts at the top
-const RGB HUD_RGB[3]    = { {255, 0, 0}, {0, 255, 0}, {0, 0, 255} };
+const RGB HUD_RGB[3]    = { {255, 0, 0}, {255, 255, 0}, {0, 255, 0} };
 
 uint16_t bgSwap;                   // byte-swapped background for direct buffer writes
 
