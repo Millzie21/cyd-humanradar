@@ -26,7 +26,7 @@
 
 #define MAX_RANGE_MM       6000    // outer ring distance
 #define RING_COUNT         6       // rings (6 = one per metre at 6 m)
-#define SIMULATE           true    // true = fake targets, false = real LD2450
+#define SIMULATE           false    // true = fake targets, false = real LD2450
 #define FOV_DEG            90      // half-angle of the drawn rings (90 = flat bottom)
 
 #define PULSE_TRAVEL_MS    1400    // time for pulse to reach the outer ring
@@ -48,7 +48,7 @@ public:
       auto cfg = _bus.config();
       cfg.spi_host    = HSPI_HOST;
       cfg.spi_mode    = 0;
-      cfg.freq_write  = 40000000;
+      cfg.freq_write  = 80000000;
       cfg.freq_read   = 16000000;
       cfg.spi_3wire   = false;
       cfg.use_lock    = true;
