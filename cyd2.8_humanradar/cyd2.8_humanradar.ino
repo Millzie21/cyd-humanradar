@@ -3,6 +3,9 @@
   Library: LovyanGFX v1.x
   Board:   "ESP32 Dev Module"
 
+  Core 0 -> display task (rendering)
+  Core 1 -> radar task   (LD2450 UART / simulator)
+
   Wiring (LD2450 -> CYD):
     LD2450 5V  -> CYD 5V   (P1 connector "VIN")
     LD2450 GND -> CYD GND
@@ -15,6 +18,8 @@
 #include <LovyanGFX.hpp>
 
 // ======================= USER SETTINGS =======================
+#define SIMULATE           false    // true = fake targets, false = real LD2450
+
 #define PANEL_INVERT       false   // flip if colors look inverted
 #define SCREEN_ROTATION    1       // 1 or 3 for landscape
 #define MIRROR_X           false   // flip left/right if targets are on the wrong side
@@ -26,7 +31,6 @@
 
 #define MAX_RANGE_MM       6000    // outer ring distance
 #define RING_COUNT         6       // rings (6 = one per metre at 6 m)
-#define SIMULATE           false    // true = fake targets, false = real LD2450
 #define FOV_DEG            90      // half-angle of the drawn rings (90 = flat bottom)
 
 #define PULSE_TRAVEL_MS    1400    // time for pulse to reach the outer ring
@@ -34,6 +38,9 @@
 #define PULSE_WAKE_PX      28      // length of the fading tail behind the pulse
 #define BLIP_FADE_MS       1800    // how long a target stays bright after a hit
 #define BLIP_MIN           0.30f   // minimum target brightness between pulses (0 = vanish)
+
+#define DISPLAY_CORE       0
+#define RADAR_CORE         1
 // =============================================================
 
 // ---------------- LovyanGFX config for CYD2USB ----------------
@@ -122,6 +129,7 @@ const RGB OUTER_RGB   = {180, 248, 242};
 const RGB PULSE_RGB   = {200, 255, 248};
 const RGB DOT_RGB     = {255, 215, 190};
 
+// colors of the blips on the radar
 const RGB TARGET_RGB[3] = { {255, 0, 0}, {255, 255, 0}, {0, 255, 0} };
 // colors used for the readouts at the top
 const RGB HUD_RGB[3]    = { {255, 0, 0}, {255, 255, 0}, {0, 255, 0} };
@@ -144,36 +152,24 @@ static inline RGB lerpRGB(RGB a, RGB b, float t) {
 
 static inline uint16_t mix565(RGB a, RGB b, float t) { return c565(lerpRGB(a, b, t)); }
 
-// ---------------- Targets ----------------
-struct Target {
-  bool     valid = false;
-  int16_t  x = 0, y = 0;     // mm
-  int16_t  speed = 0;        // cm/s
-  float    dist = 0;         // mm
-  float    angle = 0;        // deg, + = right
-  uint32_t lastHit = 0;
+// =============================================================
+//                 SHARED DATA (core 1 -> core 0)
+// =============================================================
+struct TargetData {
+  bool    valid = false;
+  int16_t x = 0, y = 0;      // mm
+  int16_t speed = 0;         // cm/s
+  float   dist = 0;          // mm
+  float   angle = 0;         // deg, + = right
 };
 
-struct Blip {                // snapshot used for drawing one frame
-  bool     show = false;
-  bool     onScreen = false;
-  int      sx = 0, sy = 0;
-  float    glow = 0;
-  uint32_t age = 0;
-  float    dist = 0;
-  int      angle = 0;
-  int      speed = 0;
-};
+TargetData   sharedTargets[3];
+uint32_t     sharedFrameMs = 0;
+portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
 
-Target targets[3];
-Blip   blips[3];
-uint32_t lastFrameMs = 0;
-
-// ---------------- Pulse ----------------
-uint32_t pulseStart = 0;
-float pulseR = -1, prevPulseR = -1;
-
-// ---------------- LD2450 ----------------
+// =============================================================
+//                 RADAR SIDE (runs on core 1)
+// =============================================================
 static inline int16_t decodeSigned(uint16_t raw) {
   return (raw & 0x8000) ? (int16_t)(raw & 0x7FFF) : -(int16_t)(raw & 0x7FFF);
 }
@@ -187,7 +183,7 @@ void sendRadarCmd(const uint8_t *data, uint16_t len) {
   RadarSerial.write(data, len);
   RadarSerial.write(tail, 4);
   RadarSerial.flush();
-  delay(100);
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
 
 void setMultiTargetMode() {
@@ -205,18 +201,17 @@ uint8_t frameBuf[30];
 uint8_t frameIdx = 0;
 
 void parseFrame() {
+  TargetData tmp[3];
   for (int i = 0; i < 3; i++) {
     const uint8_t *p = frameBuf + 4 + i * 8;
     uint16_t rx = p[0] | (p[1] << 8);
     uint16_t ry = p[2] | (p[3] << 8);
     uint16_t rs = p[4] | (p[5] << 8);
     uint16_t rr = p[6] | (p[7] << 8);
-    Target &t = targets[i];
 
-    if (rx == 0 && ry == 0 && rs == 0 && rr == 0) {
-      t.valid = false;
-      continue;
-    }
+    if (rx == 0 && ry == 0 && rs == 0 && rr == 0) continue;   // empty slot
+
+    TargetData &t = tmp[i];
     t.valid = true;
     t.x = decodeSigned(rx);
     t.y = decodeSigned(ry);
@@ -224,7 +219,12 @@ void parseFrame() {
     t.dist = sqrtf((float)t.x * t.x + (float)t.y * t.y);
     t.angle = degrees(atan2f(MIRROR_X ? -t.x : t.x, t.y));
   }
-  lastFrameMs = millis();
+
+  uint32_t now = millis();
+  taskENTER_CRITICAL(&dataMux);
+  memcpy(sharedTargets, tmp, sizeof(tmp));
+  sharedFrameMs = now;
+  taskEXIT_CRITICAL(&dataMux);
 }
 
 void readRadar() {
@@ -250,7 +250,6 @@ void readRadar() {
 
 // ---------------- Simulator (no LD2450 needed) ----------------
 static inline uint16_t encodeSigned(int v) {
-  // LD2450 encoding: MSB=1 for positive, MSB=0 for negative
   return v >= 0 ? (uint16_t)(0x8000 | v) : (uint16_t)(-v);
 }
 
@@ -269,13 +268,12 @@ void simulateRadar(uint32_t now) {
 
   // fake target paths in mm (x = left/right, y = forward)
   float pos[3][2] = {
-    { 1500 * sinf(t * 0.5f),        2500 },                          // walks left-right at 2.5 m
-    { -800,                         3500 + 2000 * sinf(t * 0.3f) },  // walks toward/away
-    { 1200 * cosf(t * 0.4f),        4000 + 1200 * sinf(t * 0.4f) },  // walks in a circle
+    { 1500 * sinf(t * 0.5f),  2500 },                          // walks left-right at 2.5 m
+    { -800,                   3500 + 2000 * sinf(t * 0.3f) },  // walks toward/away
+    { 1200 * cosf(t * 0.4f),  4000 + 1200 * sinf(t * 0.4f) },  // walks in a circle
   };
-  bool present[3] = { true, true, fmodf(t, 10.0f) < 7.0f };          // T3 vanishes 3 s out of 10
+  bool present[3] = { true, true, fmodf(t, 10.0f) < 7.0f };    // T3 vanishes 3 s out of 10
 
-  // build a real LD2450 frame
   frameBuf[0] = 0xAA; frameBuf[1] = 0xFF; frameBuf[2] = 0x03; frameBuf[3] = 0x00;
   for (int i = 0; i < 3; i++) {
     uint8_t *p = frameBuf + 4 + i * 8;
@@ -292,14 +290,61 @@ void simulateRadar(uint32_t now) {
     put16(p + 0, encodeSigned(x));
     put16(p + 2, encodeSigned(y));
     put16(p + 4, encodeSigned(speed));
-    put16(p + 6, 360);                      // distance resolution (unused)
+    put16(p + 6, 360);
   }
   frameBuf[28] = 0x55; frameBuf[29] = 0xCC;
 
   parseFrame();
 }
 
-// ---------------- Per-frame updates ----------------
+void radarTask(void *) {
+#if SIMULATE
+  for (;;) {
+    simulateRadar(millis());
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+#else
+  RadarSerial.setRxBufferSize(2048);
+  RadarSerial.begin(RADAR_BAUD, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
+  vTaskDelay(pdMS_TO_TICKS(200));
+  if (FORCE_MULTI_TARGET) setMultiTargetMode();
+
+  for (;;) {
+    readRadar();
+    vTaskDelay(pdMS_TO_TICKS(2));           // ~50 bytes arrive per 2 ms, buffer holds 2048
+  }
+#endif
+}
+
+// =============================================================
+//                 DISPLAY SIDE (runs on core 0)
+// =============================================================
+struct Blip {                // per-frame drawing data
+  bool     show = false;
+  bool     onScreen = false;
+  int      sx = 0, sy = 0;
+  float    glow = 0;
+  uint32_t age = 0;
+  float    dist = 0;
+  int      angle = 0;
+  int      speed = 0;
+};
+
+TargetData view[3];          // snapshot of sharedTargets for this frame
+uint32_t   viewFrameMs = 0;
+uint32_t   lastHit[3] = {0, 0, 0};
+Blip       blips[3];
+
+uint32_t pulseStart = 0;
+float pulseR = -1, prevPulseR = -1;
+
+void takeSnapshot() {
+  taskENTER_CRITICAL(&dataMux);
+  memcpy(view, sharedTargets, sizeof(view));
+  viewFrameMs = sharedFrameMs;
+  taskEXIT_CRITICAL(&dataMux);
+}
+
 void updatePulse(uint32_t now) {
   uint32_t t = (now - pulseStart) % PULSE_PERIOD_MS;
   prevPulseR = pulseR;
@@ -311,13 +356,14 @@ void updatePulse(uint32_t now) {
 }
 
 void updateTargets(uint32_t now) {
+  bool stale = (now - viewFrameMs) > 1000;
   float from = (prevPulseR < 0 || prevPulseR > pulseR) ? 0 : prevPulseR;
 
   for (int i = 0; i < 3; i++) {
-    Target &t = targets[i];
+    const TargetData &t = view[i];
     Blip &b = blips[i];
-    b.show = t.valid;
-    if (!t.valid) continue;
+    b.show = t.valid && !stale;
+    if (!b.show) continue;
 
     float s = (float)RADAR_R / MAX_RANGE_MM;
     float xmm = MIRROR_X ? -t.x : t.x;
@@ -327,9 +373,9 @@ void updateTargets(uint32_t now) {
     b.onScreen = tr <= RADAR_R + 4;
 
     // pulse just swept past this target's distance -> flash
-    if (pulseR >= 0 && tr > from && tr <= pulseR) t.lastHit = now;
+    if (pulseR >= 0 && tr > from && tr <= pulseR) lastHit[i] = now;
 
-    b.age = now - t.lastHit;
+    b.age = now - lastHit[i];
     float fade = 1.0f - (float)b.age / BLIP_FADE_MS;
     if (fade < 0) fade = 0;
     b.glow  = BLIP_MIN + (1.0f - BLIP_MIN) * fade;
@@ -498,56 +544,16 @@ void drawHud(uint32_t now) {
 
   // status, bottom-right
   if (oy + STRIP_H > SCREEN_H - 14) {
-    bool alive = (now - lastFrameMs) < 1000;
+    bool alive = (now - viewFrameMs) < 1000;
     canvas->setFont(&fonts::Font0);
     canvas->setTextDatum(bottom_right);
     canvas->setTextColor(alive ? c565(LABEL_RGB) : c565({255, 80, 70}));
-    canvas->drawString(alive ? "LD2450" : "NO SENSOR", SCREEN_W - 4, SCREEN_H - 2 - oy);
+    canvas->drawString(alive ? (SIMULATE ? "SIMULATED" : "LD2450") : "NO SENSOR",
+                       SCREEN_W - 4, SCREEN_H - 2 - oy);
   }
 }
 
-// ---------------- Setup / Loop ----------------
-void setup() {
-  Serial.begin(115200);
-
-  tft.init();
-  tft.setRotation(SCREEN_ROTATION);
-  tft.setBrightness(255);
-  tft.fillScreen(TFT_BLACK);
-
-  for (int i = 0; i < 2; i++) {
-    strips[i]->setColorDepth(16);
-    if (!strips[i]->createSprite(SCREEN_W, STRIP_H)) {
-      tft.setTextColor(TFT_RED);
-      tft.drawString("Sprite alloc failed", 10, 10);
-      while (true) delay(1000);
-    }
-  }
-
-  bgSwap = swap16(c565(BG_RGB));
-
-  RadarSerial.setRxBufferSize(2048);
-  RadarSerial.begin(RADAR_BAUD, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
-  delay(200);
-  if (FORCE_MULTI_TARGET) setMultiTargetMode();
-
-  pulseStart = millis();
-}
-
-void loop() {
-#if SIMULATE
-  simulateRadar(millis());
-#endif
-  readRadar();
-
-  uint32_t now = millis();
-  if (now - lastFrameMs > 1000) {
-    for (auto &t : targets) t.valid = false;
-  }
-
-  updatePulse(now);
-  updateTargets(now);
-
+void renderFrame(uint32_t now) {
   tft.startWrite();
   int s = 0;
   for (oy = 0; oy < SCREEN_H; oy += STRIP_H) {
@@ -563,9 +569,49 @@ void loop() {
     tft.waitDMA();               // wait for the previous strip to finish sending
     canvas->pushSprite(0, oy);   // starts a DMA transfer and returns immediately
     s ^= 1;
-
-    readRadar();                 // keep the UART buffer drained between strips
   }
   tft.waitDMA();
   tft.endWrite();
+}
+
+void displayTask(void *) {
+  tft.init();
+  tft.setRotation(SCREEN_ROTATION);
+  tft.setBrightness(255);
+  tft.fillScreen(TFT_BLACK);
+
+  for (int i = 0; i < 2; i++) {
+    strips[i]->setColorDepth(16);
+    if (!strips[i]->createSprite(SCREEN_W, STRIP_H)) {
+      tft.setTextColor(TFT_RED);
+      tft.drawString("Sprite alloc failed", 10, 10);
+      for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+  }
+
+  bgSwap = swap16(c565(BG_RGB));
+  pulseStart = millis();
+
+  for (;;) {
+    takeSnapshot();              // grab latest radar data from core 1
+    uint32_t now = millis();     // read after snapshot so frame age never underflows
+
+    updatePulse(now);
+    updateTargets(now);
+    renderFrame(now);
+
+    vTaskDelay(1);               // let core 0's idle task run (keeps the watchdog happy)
+  }
+}
+
+// ---------------- Setup / Loop ----------------
+void setup() {
+  Serial.begin(115200);
+
+  xTaskCreatePinnedToCore(displayTask, "display", 8192, nullptr, 1, nullptr, DISPLAY_CORE);
+  xTaskCreatePinnedToCore(radarTask,   "radar",   4096, nullptr, 2, nullptr, RADAR_CORE);
+}
+
+void loop() {
+  vTaskDelete(nullptr);          // Arduino loop task isn't needed
 }
