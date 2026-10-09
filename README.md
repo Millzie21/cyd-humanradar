@@ -21,4 +21,10 @@ Parts required.
   <br>
   <img width="30%" alt="20261005_092002-ezgif com-optimize (1)" src="https://github.com/user-attachments/assets/410214fa-b1e9-4d77-b140-a6704adde8bc" />
 
+  To flash bin file use <a href="https://esptool.spacehuhn.com" target="_blank">Spacehuhn web flasher</a>. Select connect and connect via your com port then remove the 3 flash partitions by pressing the x on the side and should be left with one then set the target address to 0x0 and select the latest bin file that you downloaded. Should look like this below and hit program once you are done.
+  <br>
+  <br>
+  <img width="753" height="379" alt="flasher" src="https://github.com/user-attachments/assets/527e6af3-0034-4de5-887d-508725d9880b" />
+
+
 
