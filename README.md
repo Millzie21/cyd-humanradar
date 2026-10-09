@@ -14,7 +14,7 @@ Wiring
 Parts required.
 - LD2450 mmwave radar
 - 2.8 inch cheap yellow display
-- tp4056 charger with boost
+- tp4056 charger with 5v boost
 - lipo battery, used one from a old vape
 <br>
   Demo of it in action with simulate flag set to true
